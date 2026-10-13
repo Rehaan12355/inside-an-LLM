@@ -104,6 +104,21 @@ button { font: inherit; cursor: pointer; }
 .scan .corner { z-index: 3; }
 .scan .outrow { border-bottom: 1px dashed var(--muted); }
 
+/* summary */
+.narrative { font-size: 16px; line-height: 1.6; margin: 10px 0 4px; max-width: 75ch; }
+.narrative.loading { color: var(--muted); animation: pulse 1.2s infinite; }
+.findings { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; }
+.finding { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; min-width: 0; }
+.finding h3 { margin: 0 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.finding .big { font-size: 22px; font-weight: 600; color: var(--accent); }
+.finding .note { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.finding ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.finding li { font-size: 13px; cursor: pointer; border-radius: 4px; padding: 1px 4px; margin: 0 -4px; }
+.finding li:hover { background: rgba(var(--glow), .12); }
+.finding li b { color: var(--accent); font-weight: 600; }
+.finding li .m { color: var(--muted); font-size: 12px; }
+.finding .none { color: var(--muted); font-size: 13px; }
+
 .tip { position: fixed; z-index: 10; background: #1f2431; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
   font-size: 12px; pointer-events: none; max-width: 280px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
 .tip .t { display: flex; justify-content: space-between; gap: 12px; font-family: ui-monospace, Consolas, monospace; }

@@ -1,7 +1,7 @@
 "use strict";
 
 const $ = (s) => document.querySelector(s);
-const state = { mode: "chat", lens: "jlens", data: null, sel: null, wsSeq: 0 };
+const state = { mode: "chat", lens: "jlens", data: null, sel: null, wsSeq: 0, sumSeq: 0 };
 
 // ---------------------------------------------------------------- helpers
 
@@ -270,6 +270,92 @@ function renderLit() {
   drawCloud($("#litCloud"), [...agg.values()], 70);
 }
 
+// ---------------------------------------------------------------- summary
+
+async function loadSummary() {
+  const d = state.data, seq = ++state.sumSeq;
+  const nar = $("#narrative"), box = $("#findings");
+  nar.className = "narrative loading";
+  nar.textContent = "Reading the scan and writing a summary…";
+  box.innerHTML = "";
+  let s;
+  try {
+    const res = await fetch("/api/summary", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ run_id: d.run_id }),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
+    s = await res.json();
+  } catch (e) {
+    if (seq === state.sumSeq) { nar.className = "narrative err"; nar.textContent = String(e.message || e); }
+    return;
+  }
+  if (seq !== state.sumSeq) return;
+  nar.className = "narrative";
+  nar.textContent = s.narrative;
+  renderFindings(s.findings);
+}
+
+function finding(title) {
+  const f = el("div", "finding");
+  f.appendChild(el("h3", null, title));
+  return f;
+}
+
+function findingList(f, items, render, empty) {
+  if (!items.length) { f.appendChild(el("div", "none", empty)); return; }
+  const ul = el("ul");
+  for (const it of items) {
+    const li = el("li");
+    li.innerHTML = render(it);
+    if (it.pos != null) li.onclick = () => select(it.pos);
+    ul.appendChild(li);
+  }
+  f.appendChild(ul);
+}
+
+function renderFindings(f) {
+  const box = $("#findings"), tokLabel = (s) => `“${esc(showTok(s))}”`;
+  box.innerHTML = "";
+
+  const before = finding(f.mode === "chat" ? "Right before answering" : "At the last token");
+  findingList(before, f.anchor.words.map((w) => ({ w, pos: f.anchor.pos })),
+    (x) => `<b>${esc(x.w)}</b>`, "nothing clear in the middle layers");
+  before.querySelector("ul")?.setAttribute("style", "display:flex;flex-wrap:wrap;gap:4px 12px");
+  before.appendChild(el("div", "note", `middle layers (${f.mid_layers[0]}–${f.mid_layers[1]}) at ${showTok(f.anchor.token)}`));
+  box.appendChild(before);
+
+  const fore = finding("Thought of before saying");
+  findingList(fore, f.foresight.map((x) => ({ ...x, pos: x.seen_at })),
+    (x) => `<b>${esc(x.word)}</b> <span class="m">${x.lead} tokens early · L${x.layer}</span>`,
+    "no word showed up ahead of time");
+  box.appendChild(fore);
+
+  const uns = finding("Thought of but never said");
+  findingList(uns, f.unspoken,
+    (x) => `<b>${esc(x.word)}</b>${x.gloss ? ` <span class="m">(${esc(x.gloss)})</span>` : ""}`,
+    "nothing notable");
+  box.appendChild(uns);
+
+  const dec = finding("When it decides the next word");
+  const dl = f.decision_layer;
+  if (dl.jlens != null) {
+    dec.appendChild(el("div", "big", `layer ${dl.jlens} / ${f.final_layer}`));
+    dec.appendChild(el("div", "note",
+      `median over ${dl.n_tokens} tokens: first layer where the next word is in the J-lens top 3` +
+      (dl.logit != null ? `. The plain logit lens only sees it at layer ${dl.logit}.` : ".")));
+  } else {
+    dec.appendChild(el("div", "none", "not enough word tokens to measure"));
+  }
+  box.appendChild(dec);
+
+  const hot = finding("Hottest tokens");
+  findingList(hot, f.hottest,
+    (x) => `${tokLabel(x.token)} → <b>${esc(x.word)}</b> <span class="m">${(x.prob * 100).toFixed(0)}% · L${x.layer}</span>`,
+    "—");
+  box.appendChild(hot);
+}
+
 // ---------------------------------------------------------------- actions
 
 async function run() {
@@ -291,6 +377,7 @@ async function run() {
     if (state.mode === "raw") state.sel = state.data.tokens.length - 1;
     renderAll();
     setStatus(`${state.data.model} · ${state.data.tokens.length} tokens`, "ok");
+    loadSummary();
   } catch (e) {
     setStatus("error: " + (e.message || e), "");
   } finally {
@@ -313,6 +400,7 @@ bindSeg(document.querySelector(".composer .seg"), "mode", () => {
 });
 bindSeg($("#lensSeg"), "lens", () => state.data && renderAll());
 $("#go").onclick = run;
+$("#resummarize").onclick = () => state.data && loadSummary();
 $("#prompt").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) run(); });
 $("#stride").onchange = () => state.data && (renderScan(), state.sel != null && select(state.sel, false));
 $("#replyOnly").onchange = $("#stride").onchange;

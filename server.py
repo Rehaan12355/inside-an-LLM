@@ -21,6 +21,7 @@ import gzip
 import json
 import logging
 import os
+import re
 import threading
 import uuid
 from collections import OrderedDict
@@ -181,6 +182,11 @@ class Brain:
         )
         return out[0].tolist(), ids.shape[1]
 
+    def reply_text(self, prompt: str, max_new_tokens: int, system: str | None = None) -> str:
+        """Generate a reply and return just its text (no lens analysis)."""
+        ids, prompt_len = self.generate(prompt, max_new_tokens, system)
+        return self.tok.decode(ids[prompt_len:], skip_special_tokens=True).strip()
+
     @torch.no_grad()
     def analyze(self, ids: list[int], prompt_len: int) -> dict:
         """Forward pass, then J-lens and logit-lens readouts at every
@@ -215,12 +221,19 @@ class Brain:
                 del logits, logp, masked
 
         run_id = uuid.uuid4().hex[:12]
-        self.runs[run_id] = {"acts": {l: acts[l] for l in self.source_layers}, "ids": ids}
+        seen.update(ids)
+        vocab = {t: s for t, s in zip(sorted(seen), self.decode(sorted(seen)))}
+        self.runs[run_id] = {
+            "acts": {l: acts[l] for l in self.source_layers},
+            "ids": ids,
+            "prompt_len": prompt_len,
+            "layers": layers,
+            "readout": out,
+            "vocab": vocab,
+        }
         while len(self.runs) > 4:
             self.runs.popitem(last=False)
 
-        seen.update(ids)
-        vocab = {t: s for t, s in zip(sorted(seen), self.decode(sorted(seen)))}
         return {
             "run_id": run_id,
             "model": MODEL_NAME,
@@ -299,6 +312,174 @@ class Brain:
         }
 
 
+    # -------------------------------------------------------------- summary
+
+    def findings(self, run_id: str) -> dict:
+        """Deterministic highlights pulled from a run's J-lens readout."""
+        run = self.runs.get(run_id)
+        if run is None:
+            raise KeyError(run_id)
+        ids, prompt_len, layers = run["ids"], run["prompt_len"], run["layers"]
+        vocab, readout = run["vocab"], run["readout"]
+        strs = self.decode(ids)
+        n = len(ids)
+        has_reply = prompt_len < n
+        lo, hi = round(self.n_layers * 0.25), round(self.n_layers * 0.75)
+        mid = [li for li, l in enumerate(layers) if lo <= l <= hi]
+        jl = readout["jlens"]
+
+        def word(t: int) -> str:
+            return vocab[t].strip()
+
+        def key(t: int) -> str:
+            return vocab[t].strip().lower()
+
+        def special(s: str) -> bool:
+            return s.startswith("<|") or s.strip() in ("<think>", "</think>") or not s.strip()
+
+        # Positions whose readouts count as "the model thinking while writing":
+        # the reply plus the last prompt token (where it plans the reply), or
+        # the whole text in raw mode.
+        start = prompt_len - 1 if has_reply else 0
+        scan = [p for p in range(start, n) if not special(strs[p]) or p == prompt_len - 1]
+
+        full_text = "".join(strs).lower()
+        text_words = set(re.findall(r"[\w'’-]+", full_text))
+        token_keys = [s.strip().lower() for s in strs]
+
+        def meaningful(k: str) -> bool:
+            return len(k) >= 3 and k not in STOPWORDS
+
+        # 1. Unspoken: lit up in the middle layers but never written anywhere.
+        unspoken: dict[str, dict] = {}
+        for li in mid:
+            for p in scan:
+                for t, prob in jl[li][p]:
+                    k = key(t)
+                    if not meaningful(k) or k in text_words or k.rstrip("s") in text_words or k + "s" in text_words:
+                        continue
+                    u = unspoken.setdefault(k, {"word": word(t), "score": 0.0, "gloss": self.gloss.get(t), "pos": p, "best": 0.0})
+                    u["score"] += prob
+                    if prob > u["best"]:
+                        u["best"], u["pos"] = prob, p
+        unspoken_top = sorted(unspoken.values(), key=lambda u: -u["score"])[:8]
+
+        # 2. Foresight: a word visible in the middle layers at position p that
+        # the model only writes later, at q >= p + 2.
+        foresight: dict[str, dict] = {}
+        for p in scan:
+            for li in mid:
+                for t, prob in jl[li][p][:5]:
+                    k = key(t)
+                    if prob < 0.02 or not meaningful(k) or k in foresight:
+                        continue
+                    later = [q for q in range(p + 2, n) if token_keys[q] == k]
+                    if later and (not has_reply or later[0] >= prompt_len):
+                        foresight[k] = {"word": word(t), "seen_at": p, "said_at": later[0],
+                                        "lead": later[0] - p, "layer": layers[li], "prob": round(prob, 3)}
+        foresight_top = sorted(foresight.values(), key=lambda f: (-f["lead"], -f["prob"]))[:6]
+
+        # 3. Decision depth: earliest layer where the token actually written
+        # next is in the lens's top 3, J-lens vs logit lens.
+        def first_layer(lens: str, p: int, k: str) -> int | None:
+            for li, layer in enumerate(layers):
+                if any(key(t) == k for t, _ in readout[lens][li][p][:3]):
+                    return layer
+            return None
+
+        depth = {"jlens": [], "logit": []}
+        for p in range(start, n - 1):
+            k = token_keys[p + 1]
+            if not meaningful(k) or special(strs[p + 1]):
+                continue
+            for lens in depth:
+                fl = first_layer(lens, p, k)
+                if fl is not None:
+                    depth[lens].append(fl)
+
+        def median(xs: list[int]) -> float | None:
+            xs = sorted(xs)
+            return float(xs[len(xs) // 2]) if xs else None
+
+        # 4. What it was thinking just before answering (or at the last token).
+        anchor = prompt_len - 1 if has_reply else n - 1
+        before: dict[str, float] = {}
+        for li in mid:
+            for t, prob in jl[li][anchor]:
+                if meaningful(key(t)):
+                    before[word(t)] = before.get(word(t), 0.0) + prob
+        before_top = [w for w, _ in sorted(before.items(), key=lambda x: -x[1])[:6]]
+
+        # 5. Hottest tokens: strongest top-1 activation in the middle layers.
+        heat = []
+        for p in scan:
+            li = max(mid, key=lambda li: jl[li][p][0][1])
+            t, prob = jl[li][p][0]
+            heat.append({"pos": p, "token": strs[p], "word": word(t), "layer": layers[li], "prob": round(prob, 3)})
+        heat.sort(key=lambda h: -h["prob"])
+
+        return {
+            "mode": "chat" if has_reply else "raw",
+            "n_tokens": n,
+            "mid_layers": [lo, hi],
+            "final_layer": self.final_layer,
+            "prompt": self.tok.decode(ids[:prompt_len], skip_special_tokens=True).strip(),
+            "reply": self.tok.decode(ids[prompt_len:], skip_special_tokens=True).strip(),
+            "anchor": {"pos": anchor, "token": strs[anchor], "words": before_top},
+            "unspoken": unspoken_top,
+            "foresight": foresight_top,
+            "decision_layer": {
+                "jlens": median(depth["jlens"]), "logit": median(depth["logit"]),
+                "n_tokens": len(depth["jlens"]),
+            },
+            "hottest": heat[:4],
+        }
+
+    @torch.no_grad()
+    def summarize(self, run_id: str) -> dict:
+        f = self.findings(run_id)
+        lines = [
+            f"Prompt: {f['prompt'][:400]!r}",
+            f"Model's reply: {f['reply'][:400]!r}" if f["mode"] == "chat"
+            else "The model did NOT write anything; it only read this text, and we scanned it at the last word.",
+            f"Words active in its middle layers right before it {'answered' if f['mode'] == 'chat' else 'continued'}: "
+            + (", ".join(f["anchor"]["words"]) or "none clear"),
+        ]
+        if f["unspoken"]:
+            lines.append("Words it thought about but never wrote: " + ", ".join(
+                u["word"] + (f" ({u['gloss']})" if u.get("gloss") else "") for u in f["unspoken"][:6]))
+        if f["foresight"]:
+            lines.append("Words it was thinking of before writing them: " + "; ".join(
+                f"'{x['word']}' {x['lead']} tokens early" for x in f["foresight"][:4]))
+        d = f["decision_layer"]
+        if d["jlens"] is not None:
+            lines.append(
+                f"It typically settled on its next word by layer {d['jlens']:.0f} of {f['final_layer']}"
+                + (f" (a plain logit lens only sees it at layer {d['logit']:.0f})" if d["logit"] is not None else "")
+            )
+        facts = "\n".join(f"- {line}" for line in lines)
+        instruction = (
+            "You are explaining an interpretability scan of a small language model to a curious non-expert. "
+            "A 'Jacobian lens' read which words were lighting up inside the model's middle layers. "
+            "Using ONLY the facts below, write a 3-sentence plain-English summary of what the model "
+            "seemed to be thinking. Strict rules: mention only words that appear in the facts; never name "
+            "a word, place, or number that is not listed; do not claim the model answered unless a reply is "
+            "given; if a word list looks like noise, say so briefly.\n\n"
+            + facts
+        )
+        narrative = self.reply_text(instruction, max_new_tokens=200)
+        return {"findings": f, "narrative": narrative, "facts": lines}
+
+
+STOPWORDS = set("""
+the and for that this with from have has had was were are you your but not they them their its it's
+our out who what when where which why how all any can will would could should into about than then
+there here been being also just some such very more most other only over under again further once
+one two his her she him hers he's i'm we're let's did does doing done get got make made may might
+must shall each few both own same too off upon onto per via yet nor
+""".split())
+
+
 # ------------------------------------------------------------------ web app
 
 app = FastAPI(title="Inside an LLM")
@@ -352,6 +533,20 @@ def workspace(req: WorkspaceRequest) -> dict:
             raise HTTPException(404, "run expired; ask again") from None
         except IndexError:
             raise HTTPException(400, "position out of range") from None
+
+
+class SummaryRequest(BaseModel):
+    run_id: str
+
+
+@app.post("/api/summary")
+def summary(req: SummaryRequest) -> dict:
+    assert brain is not None
+    with brain.lock:
+        try:
+            return brain.summarize(req.run_id)
+        except KeyError:
+            raise HTTPException(404, "run expired; ask again") from None
 
 
 @app.get("/api/info")

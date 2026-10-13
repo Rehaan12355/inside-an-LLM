@@ -37,6 +37,16 @@
   </section>
 
   <section id="results" hidden>
+    <section class="card summary">
+      <div class="card-head">
+        <h2>Summary</h2>
+        <button id="resummarize" class="chip-btn" title="Regenerate the summary">↻ Summarize again</button>
+      </div>
+      <p id="narrative" class="narrative"></p>
+      <p class="hint">Paragraph written by the same local model from the findings below, so it can overreach. The findings come straight from the lens. Click a finding to jump to that token.</p>
+      <div id="findings" class="findings"></div>
+    </section>
+
     <section class="card">
       <div class="card-head">
         <h2>Tokens</h2>

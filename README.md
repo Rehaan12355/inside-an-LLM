@@ -34,6 +34,7 @@ caches a word-token mask and the J-lens vector norms in `cache/`.
 
 | Panel | What it shows |
 |---|---|
+| **Summary** | Findings computed from the lens: words active right before answering, words thought of before being said, words thought of but never said, the layer where the next word is decided, and the hottest tokens. A short paragraph written by the same local model from those findings sits on top; it can overreach, the findings can't. |
 | **Tokens** | Your prompt plus the model's reply. Glow shows how strongly the middle layers light up a word at that token. Click a token to select it. |
 | **Thoughts at token** | The lens's top words at each layer, with the output layer on top. Toggle **Logit lens** to compare against the plain baseline. |
 | **Workspace** | The residual stream split into a sparse nonnegative mix of ≤25 J-lens vectors per layer, using gradient pursuit as in the paper. The cloud sums the middle layers; the % column is variance explained. |
@@ -57,3 +58,10 @@ In that example, "currency" appears around layer 21 and "euro" around layer 27.
   (machine-generated, from the jlens repo).
 - Other models: set `JLENS_MODEL` and `JLENS_LENS_FILE` (or fit a lens with
   `jlens.fit`; ~100 prompts is usable).
+
+## License
+
+MIT. See [LICENSE](LICENSE). `assets/qwen_gloss.json.gz` comes from
+[anthropics/jacobian-lens](https://github.com/anthropics/jacobian-lens) and
+remains under its Apache-2.0 license. Model weights and the pre-fitted lens are
+downloaded at run time under their own licenses.
