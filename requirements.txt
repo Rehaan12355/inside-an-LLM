@@ -1,0 +1,8 @@
+# CUDA build of torch: pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch
+transformers>=5.5
+accelerate
+huggingface_hub
+fastapi
+uvicorn[standard]
+jlens @ git+https://github.com/anthropics/jacobian-lens

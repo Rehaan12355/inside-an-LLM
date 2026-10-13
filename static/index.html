@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inside an LLM</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Inside an LLM</h1>
+    <p class="sub">Words a language model is poised to say, read from its residual stream with the
+      <a href="https://transformer-circuits.pub/2026/workspace/index.html" target="_blank" rel="noopener">Jacobian lens</a>.</p>
+  </div>
+  <div id="status" class="status">connecting…</div>
+</header>
+
+<main>
+  <section class="card composer">
+    <textarea id="prompt" rows="3" placeholder="Ask the model something…">What is the currency of the country shaped like a boot? Answer in one sentence.</textarea>
+    <div class="row">
+      <div class="seg" role="radiogroup" aria-label="Mode">
+        <button class="on" data-mode="chat" title="The model writes a reply; both prompt and reply are scanned">Chat</button>
+        <button data-mode="raw" title="Scan the text exactly as written, no reply">Raw text</button>
+      </div>
+      <label class="inline">Reply length <input id="maxTokens" type="number" min="1" max="400" value="80"></label>
+      <div class="examples">
+        <span>Try:</span>
+        <button class="chip-btn" data-ex="raw|Fact: The currency used in the country shaped like a boot is">boot currency</button>
+        <button class="chip-btn" data-ex="chat|Write a two-line rhyming poem about a cat chasing a mouse.">rhyme planning</button>
+        <button class="chip-btn" data-ex="raw|The capital of the state containing Dallas is">multi-hop</button>
+        <button class="chip-btn" data-ex="chat|My grandmother just passed away and I have an exam tomorrow.">emotion</button>
+      </div>
+      <button id="go" class="primary">Look inside</button>
+    </div>
+  </section>
+
+  <section id="results" hidden>
+    <section class="card">
+      <div class="card-head">
+        <h2>Tokens</h2>
+        <p class="hint">Glow = how strongly the middle layers ("the workspace") light up a word at that token. Click any token to look inside.</p>
+      </div>
+      <div id="tokens" class="tokens"></div>
+    </section>
+
+    <div class="two">
+      <section class="card">
+        <div class="card-head">
+          <h2>Thoughts at <span id="selTok" class="tokname"></span></h2>
+          <div class="seg small" id="lensSeg" role="radiogroup" aria-label="Lens">
+            <button class="on" data-lens="jlens" title="Jacobian lens: J_l h, then unembed">J-lens</button>
+            <button data-lens="logit" title="Logit lens baseline: unembed h directly">Logit lens</button>
+          </div>
+        </div>
+        <p class="hint">Top words per layer, output at the top. Bar length = probability under the lens.</p>
+        <div id="ladder" class="ladder"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Workspace</h2>
+          <label class="inline small"><input type="checkbox" id="wordOnly" checked> words only</label>
+        </div>
+        <p class="hint">The residual stream at this token, split into a sparse nonnegative mix of ≤25 J-lens vectors per layer (gradient pursuit, as in the paper). Cloud sums the middle layers.</p>
+        <div id="wsCloud" class="cloud"></div>
+        <div id="wsLayers" class="wslayers"></div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Brain scan</h2>
+        <p class="hint">Rows are layers (output on top), columns are tokens. Each cell shows the lens's top word; brightness is its probability. Hover for the top 8, click to select.</p>
+      </div>
+      <div class="row small-row">
+        <label class="inline small">Layer stride <select id="stride"><option>1</option><option selected>2</option><option>4</option></select></label>
+        <label class="inline small"><input type="checkbox" id="replyOnly"> reply tokens only</label>
+      </div>
+      <div class="scan-wrap"><div id="scan" class="scan"></div></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>What lit up</h2>
+        <p class="hint">Words summed over the middle layers across the scanned tokens.</p>
+      </div>
+      <div class="row small-row">
+        <label class="inline small"><input type="checkbox" id="unspoken" checked> only words that never appear in the text</label>
+        <label class="inline small"><input type="checkbox" id="cloudReply" checked> reply tokens only</label>
+      </div>
+      <div id="litCloud" class="cloud big"></div>
+    </section>
+  </section>
+</main>
+<div id="tip" class="tip" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
