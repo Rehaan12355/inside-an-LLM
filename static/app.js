@@ -367,7 +367,10 @@ async function run() {
   try {
     const res = await fetch("/api/think", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt, mode: state.mode, max_new_tokens: +$("#maxTokens").value || 80 }),
+      body: JSON.stringify({
+        prompt, mode: state.mode, max_new_tokens: +$("#maxTokens").value || 80,
+        system: state.mode === "chat" ? $("#system").value.trim() || null : null,
+      }),
     });
     if (!res.ok) throw new Error((await res.json()).detail || res.statusText);
     state.data = await res.json();
@@ -397,7 +400,10 @@ function bindSeg(seg, key, onChange) {
 
 bindSeg(document.querySelector(".composer .seg"), "mode", () => {
   $("#maxTokens").disabled = state.mode === "raw";
+  $("#systemBox").hidden = state.mode === "raw";
 });
+// Show an "on" tag on the collapsed box so a forgotten system prompt is visible.
+$("#system").oninput = () => { $("#systemTag").hidden = !$("#system").value.trim(); };
 bindSeg($("#lensSeg"), "lens", () => state.data && renderAll());
 $("#go").onclick = run;
 $("#resummarize").onclick = () => state.data && loadSummary();
@@ -409,9 +415,12 @@ $("#cloudReply").onchange = $("#unspoken").onchange;
 $("#wordOnly").onchange = () => state.data && state.sel != null && loadWorkspace(state.sel);
 document.querySelectorAll("[data-ex]").forEach((b) => {
   b.onclick = () => {
-    const [mode, text] = b.dataset.ex.split("|");
+    const [mode, text, system = ""] = b.dataset.ex.split("|");
     document.querySelector(`.composer .seg [data-mode="${mode}"]`).click();
     $("#prompt").value = text;
+    $("#system").value = system;
+    $("#systemBox").open = !!system;
+    $("#system").oninput();
     run();
   };
 });

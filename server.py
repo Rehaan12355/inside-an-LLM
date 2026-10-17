@@ -496,7 +496,7 @@ def _load() -> None:
 class ThinkRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=8000)
     mode: str = "chat"  # "chat": model replies; "raw": analyse the text as-is
-    system: str | None = None
+    system: str | None = Field(default=None, max_length=8000)
     max_new_tokens: int = Field(default=96, ge=1, le=400)
 
 

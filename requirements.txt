@@ -1,8 +1,11 @@
-# CUDA build of torch: pip install torch --index-url https://download.pytorch.org/whl/cu128
-torch
-transformers>=5.5
-accelerate
-huggingface_hub
-fastapi
-uvicorn[standard]
-jlens @ git+https://github.com/anthropics/jacobian-lens
+# CUDA build of torch: pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu130
+# (needs an NVIDIA driver with CUDA 13 support; the cu128 index stops at torch 2.11)
+torch==2.14.1
+transformers==5.20.1
+accelerate==1.15.0
+huggingface_hub==2.2.0
+fastapi==0.143.3
+uvicorn[standard]==0.54.0
+# Anthropic's reference code, pinned to a commit. Do not install "jlens" from PyPI:
+# that name belongs to an unrelated JSONata library.
+jlens @ git+https://github.com/anthropics/jacobian-lens@581d398613e5602a5af361e1c34d3a92ea82ba8e

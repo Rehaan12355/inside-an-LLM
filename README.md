@@ -23,7 +23,7 @@ First-time setup:
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\pip install torch --index-url https://download.pytorch.org/whl/cu128
+.venv\Scripts\pip install torch==2.14.1 --index-url https://download.pytorch.org/whl/cu130
 .venv\Scripts\pip install -r requirements.txt
 ```
 
@@ -40,6 +40,10 @@ caches a word-token mask and the J-lens vector norms in `cache/`.
 | **Workspace** | The residual stream split into a sparse nonnegative mix of ≤25 J-lens vectors per layer, using gradient pursuit as in the paper. The cloud sums the middle layers; the % column is variance explained. |
 | **Brain scan** | A layers × tokens grid of each cell's top word, like the paper's slice viewer. Hover a cell for the top 8. |
 | **What lit up** | Words summed over the middle layers across the reply. You can limit it to words that never appear in the text: the model's "unspoken" thoughts. |
+
+In **Chat** mode you can open **System prompt** to give the model a persona or a
+hidden goal (try the *hidden goal* example), then compare what lights up with
+and without it. The system prompt's tokens are scanned as part of the prompt.
 
 **Raw text** mode scans text exactly as written, with no reply. Use it for
 paper-style prompts like `Fact: The currency used in the country shaped like a boot is`.
